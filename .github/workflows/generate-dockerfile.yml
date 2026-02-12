@@ -1,0 +1,364 @@
+name: Generate Dockerfile
+
+on:
+  workflow_call:
+    inputs:
+      # Base image configuration
+      base_image:
+        description: 'Base Docker image (e.g., python:3.11-slim, node:20-alpine)'
+        required: true
+        type: string
+      
+      # Application configuration
+      app_name:
+        description: 'Application name for labeling'
+        required: true
+        type: string
+      
+      working_directory:
+        description: 'Working directory in container'
+        required: false
+        type: string
+        default: '/app'
+      
+      # Package manager and dependencies
+      package_manager:
+        description: 'Package manager: pip, poetry, npm, yarn, pnpm'
+        required: false
+        type: string
+        default: 'pip'
+      
+      requirements_file:
+        description: 'Path to requirements/dependencies file'
+        required: false
+        type: string
+        default: 'requirements.txt'
+      
+      # Build configuration
+      build_command:
+        description: 'Custom build command to run'
+        required: false
+        type: string
+        default: ''
+      
+      # Runtime configuration
+      entrypoint:
+        description: 'Container entrypoint command'
+        required: false
+        type: string
+        default: ''
+      
+      cmd:
+        description: 'Default command to run'
+        required: true
+        type: string
+      
+      exposed_port:
+        description: 'Port to expose'
+        required: false
+        type: string
+        default: '8080'
+      
+      # Additional options
+      additional_packages:
+        description: 'Space-separated list of OS packages to install'
+        required: false
+        type: string
+        default: ''
+      
+      environment_vars:
+        description: 'JSON object of environment variables'
+        required: false
+        type: string
+        default: '{}'
+      
+      # Multi-stage build support
+      enable_multistage:
+        description: 'Enable multi-stage build for smaller images'
+        required: false
+        type: boolean
+        default: true
+      
+      # Health check
+      health_check_path:
+        description: 'Health check endpoint path'
+        required: false
+        type: string
+        default: '/health'
+      
+      # Output options
+      dockerfile_path:
+        description: 'Path where Dockerfile should be generated'
+        required: false
+        type: string
+        default: 'Dockerfile'
+      
+      commit_dockerfile:
+        description: 'Whether to commit the generated Dockerfile'
+        required: false
+        type: boolean
+        default: false
+
+    outputs:
+      dockerfile_content:
+        description: 'The generated Dockerfile content'
+        value: ${{ jobs.generate.outputs.dockerfile_content }}
+      
+      dockerfile_sha:
+        description: 'SHA256 hash of generated Dockerfile'
+        value: ${{ jobs.generate.outputs.dockerfile_sha }}
+      
+      artifact_name:
+        description: 'Name of the uploaded artifact'
+        value: ${{ jobs.generate.outputs.artifact_name }}
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    outputs:
+      dockerfile_content: ${{ steps.generate.outputs.dockerfile_content }}
+      dockerfile_sha: ${{ steps.generate.outputs.dockerfile_sha }}
+      artifact_name: ${{ steps.generate.outputs.artifact_name }}
+    
+    steps:
+      - name: Checkout caller repository
+        uses: actions/checkout@v4
+
+      - name: Generate Dockerfile
+        id: generate
+        shell: bash
+        env:
+          BASE_IMAGE: ${{ inputs.base_image }}
+          APP_NAME: ${{ inputs.app_name }}
+          WORKING_DIR: ${{ inputs.working_directory }}
+          PACKAGE_MANAGER: ${{ inputs.package_manager }}
+          REQUIREMENTS_FILE: ${{ inputs.requirements_file }}
+          BUILD_COMMAND: ${{ inputs.build_command }}
+          ENTRYPOINT: ${{ inputs.entrypoint }}
+          CMD: ${{ inputs.cmd }}
+          EXPOSED_PORT: ${{ inputs.exposed_port }}
+          ADDITIONAL_PACKAGES: ${{ inputs.additional_packages }}
+          ENVIRONMENT_VARS: ${{ inputs.environment_vars }}
+          ENABLE_MULTISTAGE: ${{ inputs.enable_multistage }}
+          HEALTH_CHECK_PATH: ${{ inputs.health_check_path }}
+          DOCKERFILE_PATH: ${{ inputs.dockerfile_path }}
+        run: |
+          set -euo pipefail
+          
+          # Determine base image type
+          if [[ "$BASE_IMAGE" == *"python"* ]]; then
+            RUNTIME="python"
+          elif [[ "$BASE_IMAGE" == *"node"* ]]; then
+            RUNTIME="node"
+          else
+            RUNTIME="generic"
+          fi
+          
+          # Start building Dockerfile
+          DOCKERFILE=""
+          
+          # Multi-stage build for smaller images
+          if [[ "$ENABLE_MULTISTAGE" == "true" ]]; then
+            DOCKERFILE+="# =============================================================================
+          # Stage 1: Builder
+          # =============================================================================
+          FROM ${BASE_IMAGE} AS builder
+          
+          "
+          else
+            DOCKERFILE+="FROM ${BASE_IMAGE}
+          
+          "
+          fi
+          
+          # Labels
+          DOCKERFILE+="# Labels
+          LABEL org.opencontainers.image.source=\"https://github.com/\${GITHUB_REPOSITORY}\"
+          LABEL org.opencontainers.image.title=\"${APP_NAME}\"
+          LABEL org.opencontainers.image.created=\"\$(date -u +'%Y-%m-%dT%H:%M:%SZ')\"
+          
+          "
+          
+          # Install additional OS packages if specified
+          if [[ -n "$ADDITIONAL_PACKAGES" ]]; then
+            DOCKERFILE+="# Install system dependencies
+          RUN apt-get update && apt-get install -y --no-install-recommends \\
+              ${ADDITIONAL_PACKAGES} \\
+              && rm -rf /var/lib/apt/lists/*
+          
+          "
+          fi
+          
+          # Set working directory
+          DOCKERFILE+="WORKDIR ${WORKING_DIR}
+          
+          "
+          
+          # Copy dependency files first (for better caching)
+          case "$PACKAGE_MANAGER" in
+            pip)
+              DOCKERFILE+="# Copy requirements for dependency caching
+          COPY ${REQUIREMENTS_FILE} .
+          RUN pip install --no-cache-dir --upgrade pip && \\
+              pip install --no-cache-dir -r ${REQUIREMENTS_FILE}
+          
+          "
+              ;;
+            poetry)
+              DOCKERFILE+="# Install Poetry and dependencies
+          COPY pyproject.toml poetry.lock* ./
+          RUN pip install --no-cache-dir poetry && \\
+              poetry config virtualenvs.create false && \\
+              poetry install --no-interaction --no-ansi --no-root
+          
+          "
+              ;;
+            npm)
+              DOCKERFILE+="# Copy package files for dependency caching
+          COPY package*.json ./
+          RUN npm ci --only=production
+          
+          "
+              ;;
+            yarn)
+              DOCKERFILE+="# Copy package files for dependency caching
+          COPY package.json yarn.lock* ./
+          RUN yarn install --frozen-lockfile --production
+          
+          "
+              ;;
+            pnpm)
+              DOCKERFILE+="# Copy package files for dependency caching
+          COPY package.json pnpm-lock.yaml* ./
+          RUN corepack enable && pnpm install --frozen-lockfile --prod
+          
+          "
+              ;;
+          esac
+          
+          # Copy application code
+          DOCKERFILE+="# Copy application code
+          COPY . .
+          
+          "
+          
+          # Run build command if specified
+          if [[ -n "$BUILD_COMMAND" ]]; then
+            DOCKERFILE+="# Build application
+          RUN ${BUILD_COMMAND}
+          
+          "
+          fi
+          
+          # Multi-stage: Production stage
+          if [[ "$ENABLE_MULTISTAGE" == "true" ]]; then
+            DOCKERFILE+="# =============================================================================
+          # Stage 2: Production
+          # =============================================================================
+          FROM ${BASE_IMAGE} AS production
+          
+          WORKDIR ${WORKING_DIR}
+          
+          "
+            # Copy from builder
+            case "$PACKAGE_MANAGER" in
+              pip|poetry)
+                DOCKERFILE+="# Copy installed packages and application
+          COPY --from=builder /usr/local/lib/python*/site-packages /usr/local/lib/python*/site-packages
+          COPY --from=builder ${WORKING_DIR} ${WORKING_DIR}
+          
+          "
+                ;;
+              npm|yarn|pnpm)
+                DOCKERFILE+="# Copy node_modules and application
+          COPY --from=builder ${WORKING_DIR}/node_modules ./node_modules
+          COPY --from=builder ${WORKING_DIR} .
+          
+          "
+                ;;
+            esac
+          fi
+          
+          # Environment variables
+          if [[ "$ENVIRONMENT_VARS" != "{}" ]]; then
+            DOCKERFILE+="# Environment variables
+          "
+            echo "$ENVIRONMENT_VARS" | jq -r 'to_entries[] | "ENV \(.key)=\"\(.value)\""' >> /tmp/env_vars.txt 2>/dev/null || true
+            if [[ -f /tmp/env_vars.txt ]]; then
+              while IFS= read -r line; do
+                DOCKERFILE+="${line}
+          "
+              done < /tmp/env_vars.txt
+            fi
+            DOCKERFILE+="
+          "
+          fi
+          
+          # Expose port
+          DOCKERFILE+="# Expose port
+          EXPOSE ${EXPOSED_PORT}
+          
+          "
+          
+          # Health check
+          if [[ -n "$HEALTH_CHECK_PATH" ]]; then
+            DOCKERFILE+="# Health check
+          HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \\
+              CMD curl -f http://localhost:${EXPOSED_PORT}${HEALTH_CHECK_PATH} || exit 1
+          
+          "
+          fi
+          
+          # Create non-root user for security
+          DOCKERFILE+="# Create non-root user for security
+          RUN addgroup --system --gid 1001 appgroup && \\
+              adduser --system --uid 1001 --gid 1001 appuser && \\
+              chown -R appuser:appgroup ${WORKING_DIR}
+          USER appuser
+          
+          "
+          
+          # Entrypoint and CMD
+          if [[ -n "$ENTRYPOINT" ]]; then
+            DOCKERFILE+="ENTRYPOINT [\"${ENTRYPOINT}\"]
+          "
+          fi
+          
+          DOCKERFILE+="CMD [${CMD}]
+          "
+          
+          # Write Dockerfile
+          echo "$DOCKERFILE" > "${DOCKERFILE_PATH}"
+          
+          # Calculate SHA
+          DOCKERFILE_SHA=$(sha256sum "${DOCKERFILE_PATH}" | cut -d' ' -f1)
+          
+          # Set outputs
+          {
+            echo "dockerfile_sha=${DOCKERFILE_SHA}"
+            echo "artifact_name=dockerfile-${GITHUB_SHA:0:7}"
+          } >> "$GITHUB_OUTPUT"
+          
+          # Output content (base64 encoded for safety)
+          echo "dockerfile_content<<DOCKERFILE_EOF" >> "$GITHUB_OUTPUT"
+          cat "${DOCKERFILE_PATH}" >> "$GITHUB_OUTPUT"
+          echo "DOCKERFILE_EOF" >> "$GITHUB_OUTPUT"
+          
+          echo "✅ Generated Dockerfile:"
+          cat "${DOCKERFILE_PATH}"
+
+      - name: Upload Dockerfile as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.generate.outputs.artifact_name }}
+          path: ${{ inputs.dockerfile_path }}
+          retention-days: 7
+
+      - name: Commit Dockerfile (if enabled)
+        if: inputs.commit_dockerfile == true
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: auto-generate Dockerfile [skip ci]"
+          file_pattern: ${{ inputs.dockerfile_path }}
+          commit_user_name: github-actions[bot]
+          commit_user_email: github-actions[bot]@users.noreply.github.com
