@@ -1,18 +1,12 @@
-# Auto-generated Dockerfile for Python ML Models
-
 FROM python:{{PYTHON_VERSION}}-slim
 
 WORKDIR /app
 
-# Install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy model code
 COPY . .
 
-# Expose port
 EXPOSE {{PORT}}
 
-# Run the model
 CMD ["python", "{{MODEL_ENTRYPOINT}}"]

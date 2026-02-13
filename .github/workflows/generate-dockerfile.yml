@@ -15,20 +15,15 @@ jobs:
         with:
           repository: subedi-labs/platform
           path: .platform
-          sparse-checkout: .github/templates
+          sparse-checkout: |
+            .github/workflows/templates/Dockerfile.template
 
-      - name: Read config and generate Dockerfile
+      - name: Generate Dockerfile from template
         run: |
-          # Read values from config file
-          PYTHON_VERSION=$(yq '.python_version // "3.10"' dockerfile-config.yaml)
-          MODEL_ENTRYPOINT=$(yq '.model_entrypoint' dockerfile-config.yaml)
-          PORT=$(yq '.port // "8080"' dockerfile-config.yaml)
-
-          # Generate Dockerfile from template
-          sed -e "s/{{PYTHON_VERSION}}/$PYTHON_VERSION/g" \
-              -e "s/{{MODEL_ENTRYPOINT}}/$MODEL_ENTRYPOINT/g" \
-              -e "s/{{PORT}}/$PORT/g" \
-              .platform/.github/templates/Dockerfile.template > Dockerfile
+          sed -e 's/{{PYTHON_VERSION}}/3.11/g' \
+              -e 's/{{MODEL_ENTRYPOINT}}/app.py/g' \
+              -e 's/{{PORT}}/8080/g' \
+              .platform/.github/workflows/templates/Dockerfile.template > Dockerfile
 
       - name: Display generated Dockerfile
         run: cat Dockerfile
