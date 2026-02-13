@@ -2,21 +2,6 @@ name: Generate Dockerfile
 
 on:
   workflow_call:
-    inputs:
-      python_version:
-        description: 'Python version to use'
-        required: true
-        type: string
-        default: '3.10'
-      model_entrypoint:
-        description: 'The main Python file to run'
-        required: true
-        type: string
-      port:
-        description: 'Port to expose'
-        required: false
-        type: string
-        default: '8080'
 
 jobs:
   generate-dockerfile:
@@ -28,15 +13,21 @@ jobs:
       - name: Checkout platform templates
         uses: actions/checkout@v4
         with:
-          repository: YOUR_ORG/platform
+          repository: subedi-labs/platform
           path: .platform
           sparse-checkout: .github/templates
 
-      - name: Generate Dockerfile from template
+      - name: Read config and generate Dockerfile
         run: |
-          sed -e 's/{{PYTHON_VERSION}}/${{ inputs.python_version }}/g' \
-              -e 's/{{MODEL_ENTRYPOINT}}/${{ inputs.model_entrypoint }}/g' \
-              -e 's/{{PORT}}/${{ inputs.port }}/g' \
+          # Read values from config file
+          PYTHON_VERSION=$(yq '.python_version // "3.10"' dockerfile-config.yaml)
+          MODEL_ENTRYPOINT=$(yq '.model_entrypoint' dockerfile-config.yaml)
+          PORT=$(yq '.port // "8080"' dockerfile-config.yaml)
+
+          # Generate Dockerfile from template
+          sed -e "s/{{PYTHON_VERSION}}/$PYTHON_VERSION/g" \
+              -e "s/{{MODEL_ENTRYPOINT}}/$MODEL_ENTRYPOINT/g" \
+              -e "s/{{PORT}}/$PORT/g" \
               .platform/.github/templates/Dockerfile.template > Dockerfile
 
       - name: Display generated Dockerfile
