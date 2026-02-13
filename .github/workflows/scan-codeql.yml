@@ -1,0 +1,56 @@
+name: "CodeQL Analysis"
+
+on:
+  workflow_call:
+    inputs:
+      language:
+        description: 'Language to analyze'
+        required: true
+        type: string
+        default: 'python'
+      python-version:
+        description: 'Python version to use'
+        required: false
+        type: string
+        default: '3.12'
+      query-suite:
+        description: 'CodeQL query suite to use'
+        required: false
+        type: string
+        default: 'security-and-quality'
+
+jobs:
+  analyze:
+    name: Analyze (${{ inputs.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    permissions:
+      security-events: write
+      contents: read
+      actions: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        if: inputs.language == 'python'
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ inputs.language }}
+          queries: +security-and-quality
+          query-suite: ${{ inputs.query-suite }}
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ inputs.language }}"
