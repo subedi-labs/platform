@@ -16,7 +16,7 @@ on:
         description: 'Buildpacks builder to use'
         required: false
         type: string
-        default: 'paketobuildpacks/builder-jammy-full'
+        default: 'paketobuildpacks/builder-jammy-base'
       working_directory:
         description: 'Working directory for the build'
         required: false
@@ -48,9 +48,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Set up Docker
-        uses: docker/setup-docker-action@v4
 
       - name: Setup Pack CLI
         uses: buildpacks/github-actions/setup-pack@v5.7.4
