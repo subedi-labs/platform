@@ -1,5 +1,3 @@
-# Reusable workflow that generates a Dockerfile from a simple config
-
 name: Generate Dockerfile
 
 on:
@@ -11,7 +9,7 @@ on:
         type: string
         default: '3.10'
       model_entrypoint:
-        description: 'The main Python file to run (e.g., predict.py)'
+        description: 'The main Python file to run'
         required: true
         type: string
       port:
@@ -27,27 +25,19 @@ jobs:
       - name: Checkout caller repo
         uses: actions/checkout@v4
 
-      - name: Generate Dockerfile
+      - name: Checkout platform templates
+        uses: actions/checkout@v4
+        with:
+          repository: YOUR_ORG/platform
+          path: .platform
+          sparse-checkout: .github/templates
+
+      - name: Generate Dockerfile from template
         run: |
-          cat > Dockerfile << 'EOF'
-          # Auto-generated Dockerfile
-          FROM python:${{ inputs.python_version }}-slim
-
-          WORKDIR /app
-
-          # Install dependencies
-          COPY requirements.txt .
-          RUN pip install --no-cache-dir -r requirements.txt
-
-          # Copy model code
-          COPY . .
-
-          # Expose port
-          EXPOSE ${{ inputs.port }}
-
-          # Run the model
-          CMD ["python", "${{ inputs.model_entrypoint }}"]
-          EOF
+          sed -e 's/{{PYTHON_VERSION}}/${{ inputs.python_version }}/g' \
+              -e 's/{{MODEL_ENTRYPOINT}}/${{ inputs.model_entrypoint }}/g' \
+              -e 's/{{PORT}}/${{ inputs.port }}/g' \
+              .platform/.github/templates/Dockerfile.template > Dockerfile
 
       - name: Display generated Dockerfile
         run: cat Dockerfile
