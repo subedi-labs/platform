@@ -46,7 +46,7 @@ jobs:
       image: ${{ steps.build.outputs.image }}
 
     steps:
-      - name: Checkout
+      - name: Checkout caller repo
         uses: actions/checkout@v4
 
       - name: Setup Pack CLI
