@@ -70,6 +70,7 @@ jobs:
           fi
           
           IMAGE="ghcr.io/${{ github.repository_owner }}/${{ inputs.image_name }}:${TAG}"
+          CACHE_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ inputs.image_name }}-cache"
           echo "image=${IMAGE}" >> $GITHUB_OUTPUT
           
           # Build environment variable arguments
@@ -85,7 +86,8 @@ jobs:
           pack build "$IMAGE" \
             --builder ${{ inputs.builder }} \
             --publish \
-            --cache-image "ghcr.io/${{ github.repository_owner }}/${{ inputs.image_name }}-cache" \
+            --cache-image "$CACHE_IMAGE" \
             $ENV_ARGS
           
           echo "✅ Published: $IMAGE"
+          echo "📦 Cache stored at: $CACHE_IMAGE"
