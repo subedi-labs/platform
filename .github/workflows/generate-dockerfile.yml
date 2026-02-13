@@ -3,6 +3,11 @@ name: Generate Dockerfile
 on:
   workflow_call:
     inputs:
+      config_path:
+        description: 'Path to container configuration file'
+        required: true
+        type: string
+
       base_image:
         description: 'Python base image'
         required: false
