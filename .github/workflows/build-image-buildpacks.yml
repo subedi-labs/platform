@@ -1,0 +1,91 @@
+name: Build Image with Buildpacks
+
+on:
+  workflow_call:
+    inputs:
+      image_name:
+        description: 'Name for the built image'
+        required: true
+        type: string
+      image_tag:
+        description: 'Tag for the image (defaults to git sha)'
+        required: false
+        type: string
+        default: ''
+      builder:
+        description: 'Buildpacks builder to use'
+        required: false
+        type: string
+        default: 'paketobuildpacks/builder-jammy-full'
+      working_directory:
+        description: 'Working directory for the build'
+        required: false
+        type: string
+        default: '.'
+      env_vars:
+        description: 'Build environment variables (KEY=value, one per line)'
+        required: false
+        type: string
+        default: ''
+
+    outputs:
+      image:
+        description: 'Full image reference'
+        value: ${{ jobs.build.outputs.image }}
+
+jobs:
+  build:
+    name: Build with Buildpacks
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: read
+      packages: write
+    
+    outputs:
+      image: ${{ steps.build.outputs.image }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Pack CLI
+        uses: buildpacks/github-actions/setup-pack@v5.7.4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build and publish image
+        id: build
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          # Set image tag
+          TAG="${{ inputs.image_tag }}"
+          if [ -z "$TAG" ]; then
+            TAG="${{ github.sha }}"
+          fi
+          
+          IMAGE="ghcr.io/${{ github.repository_owner }}/${{ inputs.image_name }}:${TAG}"
+          echo "image=${IMAGE}" >> $GITHUB_OUTPUT
+          
+          # Build environment variable arguments
+          ENV_ARGS=""
+          if [ -n "${{ inputs.env_vars }}" ]; then
+            while IFS= read -r line; do
+              [ -n "$line" ] && ENV_ARGS="$ENV_ARGS --env $line"
+            done <<< "${{ inputs.env_vars }}"
+          fi
+          
+          # Build and publish
+          echo "🚧 Building: $IMAGE"
+          pack build "$IMAGE" \
+            --builder ${{ inputs.builder }} \
+            --publish \
+            --cache-image "ghcr.io/${{ github.repository_owner }}/${{ inputs.image_name }}-cache" \
+            $ENV_ARGS
+          
+          echo "✅ Published: $IMAGE"
