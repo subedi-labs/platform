@@ -63,14 +63,21 @@ jobs:
         id: build
         working-directory: ${{ inputs.working_directory }}
         run: |
-          # Set image tag
+          # Set vars
           TAG="${{ inputs.image_tag }}"
           if [ -z "$TAG" ]; then
             TAG="${{ github.sha }}"
           fi
           
-          IMAGE="ghcr.io/${{ github.repository_owner }}/${{ inputs.image_name }}:${TAG}"
-          CACHE_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ inputs.image_name }}-cache"
+          IMAGE_NAME="${{ inputs.image_name }}"
+          IMAGE_NAME="${IMAGE_NAME,,}"
+
+          OWNER="${{ github.repository_owner }}"
+          OWNER="${OWNER,,}"
+
+          # Build image paths
+          IMAGE="ghcr.io/${OWNER}/${IMAGE_NAME}:${TAG}"
+          CACHE_IMAGE="ghcr.io/${OWNER}/${IMAGE_NAME}-cache"
           echo "image=${IMAGE}" >> $GITHUB_OUTPUT
           
           # Build environment variable arguments
