@@ -1,165 +1,59 @@
+# Reusable workflow that generates a Dockerfile from a simple config
+
 name: Generate Dockerfile
 
 on:
   workflow_call:
     inputs:
-      config_path:
-        description: 'Path to container configuration file'
+      python_version:
+        description: 'Python version to use'
         required: true
         type: string
-
-      base_image:
-        description: 'Python base image'
-        required: false
-        type: string
-        default: 'python:3.11-slim'
-      
-      app_name:
-        description: 'Application name for labeling'
+        default: '3.10'
+      model_entrypoint:
+        description: 'The main Python file to run (e.g., predict.py)'
         required: true
         type: string
-      
-      requirements_file:
-        description: 'Path to requirements file'
-        required: false
-        type: string
-        default: 'requirements.txt'
-      
-      cmd:
-        description: 'Command to run the application'
-        required: true
-        type: string
-      
-      exposed_port:
+      port:
         description: 'Port to expose'
         required: false
         type: string
         default: '8080'
-      
-      additional_packages:
-        description: 'Space-separated OS packages to install'
-        required: false
-        type: string
-        default: 'curl'
-      
-      health_check_path:
-        description: 'Health check endpoint'
-        required: false
-        type: string
-        default: '/health'
-
-    outputs:
-      dockerfile_sha:
-        description: 'SHA256 hash of generated Dockerfile'
-        value: ${{ jobs.generate.outputs.dockerfile_sha }}
-      
-      commit_sha:
-        description: 'Commit SHA of the Dockerfile commit'
-        value: ${{ jobs.generate.outputs.commit_sha }}
 
 jobs:
-  generate:
+  generate-dockerfile:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    
-    outputs:
-      dockerfile_sha: ${{ steps.generate.outputs.dockerfile_sha }}
-      commit_sha: ${{ steps.commit.outputs.commit_sha }}
-    
     steps:
-      - name: Checkout caller repository
+      - name: Checkout caller repo
         uses: actions/checkout@v4
-        with:
-          ref: main
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Generate Dockerfile
-        id: generate
-        env:
-          BASE_IMAGE: ${{ inputs.base_image }}
-          APP_NAME: ${{ inputs.app_name }}
-          REQUIREMENTS_FILE: ${{ inputs.requirements_file }}
-          CMD: ${{ inputs.cmd }}
-          EXPOSED_PORT: ${{ inputs.exposed_port }}
-          ADDITIONAL_PACKAGES: ${{ inputs.additional_packages }}
-          HEALTH_CHECK_PATH: ${{ inputs.health_check_path }}
         run: |
-          cat > Dockerfile << 'DOCKERFILE_END'
-          # =============================================================================
-          # Stage 1: Builder
-          # =============================================================================
-          FROM ${BASE_IMAGE} AS builder
-
-          LABEL org.opencontainers.image.title="${APP_NAME}"
-
-          # Install system dependencies
-          RUN apt-get update && apt-get install -y --no-install-recommends \
-              ${ADDITIONAL_PACKAGES} \
-              && rm -rf /var/lib/apt/lists/*
+          cat > Dockerfile << 'EOF'
+          # Auto-generated Dockerfile
+          FROM python:${{ inputs.python_version }}-slim
 
           WORKDIR /app
 
-          # Install Python dependencies
-          COPY ${REQUIREMENTS_FILE} .
-          RUN pip install --no-cache-dir --upgrade pip && \
-              pip install --no-cache-dir -r ${REQUIREMENTS_FILE}
+          # Install dependencies
+          COPY requirements.txt .
+          RUN pip install --no-cache-dir -r requirements.txt
 
-          # Copy application code
+          # Copy model code
           COPY . .
 
-          # =============================================================================
-          # Stage 2: Production
-          # =============================================================================
-          FROM ${BASE_IMAGE} AS production
-
-          WORKDIR /app
-
-          # Copy installed packages and application from builder
-          COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
-          COPY --from=builder /usr/local/bin /usr/local/bin
-          COPY --from=builder /app /app
-
           # Expose port
-          EXPOSE ${EXPOSED_PORT}
+          EXPOSE ${{ inputs.port }}
 
-          # Health check
-          HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-              CMD curl -f http://localhost:${EXPOSED_PORT}${HEALTH_CHECK_PATH} || exit 1
+          # Run the model
+          CMD ["python", "${{ inputs.model_entrypoint }}"]
+          EOF
 
-          # Create non-root user for security
-          RUN addgroup --system --gid 1001 appgroup && \
-              adduser --system --uid 1001 --gid 1001 appuser && \
-              chown -R appuser:appgroup /app
-          USER appuser
+      - name: Display generated Dockerfile
+        run: cat Dockerfile
 
-          CMD [${CMD}]
-          DOCKERFILE_END
-
-          # Substitute environment variables
-          envsubst < Dockerfile > Dockerfile.tmp && mv Dockerfile.tmp Dockerfile
-          
-          # Calculate SHA
-          DOCKERFILE_SHA=$(sha256sum Dockerfile | cut -d' ' -f1)
-          echo "dockerfile_sha=${DOCKERFILE_SHA}" >> "$GITHUB_OUTPUT"
-          
-          echo "✅ Generated Dockerfile:"
-          cat Dockerfile
-
-      - name: Commit Dockerfile
-        id: commit
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          
-          # Check if Dockerfile changed
-          if git diff --quiet Dockerfile 2>/dev/null; then
-            echo "No changes to Dockerfile"
-            echo "commit_sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
-          else
-            git add Dockerfile
-            git commit -m "chore: auto-generate Dockerfile [skip ci]"
-            git push origin main
-            echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-            echo "✅ Dockerfile committed to main"
-          fi
+      - name: Upload Dockerfile as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dockerfile
+          path: Dockerfile
