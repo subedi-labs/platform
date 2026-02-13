@@ -30,7 +30,7 @@ on:
 
     outputs:
       image:
-        description: 'Full image reference'
+        description: 'Full image path'
         value: ${{ jobs.build.outputs.image }}
 
 jobs:
